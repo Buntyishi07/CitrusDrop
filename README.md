@@ -46,7 +46,7 @@ python -m pytest tests/ -v
 
 - **Dark desktop interface** with original CitrusDrop branding
 - **Drag-and-drop files** into the app, or use the "Choose files" button
-- **Image conversion**: PNG, JPG, WEBP, BMP, TIFF (via Pillow)
+- **Image conversion**: PNG, JPG, WEBP, BMP, TIFF, HEIC/HEIF, AVIF (via Pillow and pillow-heif)
 - **Audio/video conversion**: MP3, WAV, OGG, MP4, WEBM, MKV (via FFmpeg)
 - **Radial quick-format picker** — select a format quickly from a grid dialog
 - **Safe output naming** — files are never silently overwritten; `_1`, `_2`, etc. are appended
@@ -57,11 +57,13 @@ python -m pytest tests/ -v
 
 ## Supported formats
 
-### Image (via Pillow)
+### Image (via Pillow & pillow-heif)
 
 | Input | Output |
 |-------|--------|
-| PNG, JPG/JPEG, WEBP, BMP, TIFF, GIF | PNG, JPG, WEBP, BMP, TIFF |
+| PNG, JPG/JPEG, WEBP, BMP, TIFF, GIF, HEIC, HEIF, HEIFS, HIF, AVIF, AVIFS | PNG, JPG, WEBP, BMP, TIFF |
+
+> HEIC/HEIF decoding is powered by `pillow-heif`. AVIF decoding is supported natively via Pillow. All image inputs convert to any of the 5 supported image output formats with proper transparency handling when converting to JPEG.
 
 ### Audio/Video (via FFmpeg)
 
@@ -78,11 +80,12 @@ python -m pytest tests/ -v
 CitrusDrop/
 ├── main.py              # UI layer (PySide6 application)
 ├── converter.py         # Conversion logic (no Qt dependency)
-├── requirements.txt     # Python dependencies
+├── requirements.txt     # Python dependencies (PySide6, Pillow, pillow-heif)
 ├── README.md            # This file
 ├── tests/
 │   └── test_converter.py
 └── docs/
+    ├── current-status.md
     ├── product-spec.md
     ├── architecture.md
     ├── feature-roadmap.md
@@ -95,7 +98,6 @@ CitrusDrop/
 - **Advanced file tools** (crop, trim, compress, etc.) are planned but not yet available.
 - **The radial picker** is an in-app grid-based prototype, not a global overlay.
 - **Global drag interception** is not possible on Wayland. The app uses in-app drag-and-drop. See `docs/wayland-compatibility.md`.
-- **HEIC and AVIF input** require additional libraries not yet integrated.
 - **SVG input** requires CairoSVG, not yet integrated.
 - Conversion success depends on the input codec and your FFmpeg build.
 

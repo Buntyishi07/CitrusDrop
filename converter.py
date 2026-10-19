@@ -18,10 +18,61 @@ MEDIA_FORMATS = AUDIO_FORMATS | VIDEO_FORMATS
 
 ALL_OUTPUT_FORMATS = IMAGE_FORMATS | MEDIA_FORMATS
 
+# Supported extended image inputs
+HEIF_EXTENSIONS = {"heic", "heics", "heif", "heifs", "hif"}
+AVIF_EXTENSIONS = {"avif", "avifs"}
+
 # Rough input-format heuristics used for validation only.
-IMAGE_EXTENSIONS = IMAGE_FORMATS | {"gif", "ico", "svg", "heic", "heif", "avif"}
+IMAGE_EXTENSIONS = (
+    IMAGE_FORMATS
+    | {"gif", "ico", "svg"}
+    | HEIF_EXTENSIONS
+    | AVIF_EXTENSIONS
+)
 AUDIO_EXTENSIONS = AUDIO_FORMATS | {"flac", "aac", "wma", "m4a", "opus"}
 VIDEO_EXTENSIONS = VIDEO_FORMATS | {"avi", "mov", "flv", "wmv", "ts", "m4v", "3gp"}
+
+
+# ── Decoder registration & availability ───────────────────────────────────
+
+_HEIF_REGISTERED = False
+
+
+def register_heif_support() -> bool:
+    """Register pillow_heif opener with Pillow if available.
+
+    Returns True if registration succeeded or was already active.
+    """
+    global _HEIF_REGISTERED
+    if _HEIF_REGISTERED:
+        return True
+    try:
+        import pillow_heif
+
+        pillow_heif.register_heif_opener()
+        _HEIF_REGISTERED = True
+        return True
+    except (ImportError, Exception):
+        return False
+
+
+def is_heif_supported() -> bool:
+    """Return True if HEIC/HEIF decoding is available."""
+    return register_heif_support()
+
+
+def is_avif_supported() -> bool:
+    """Return True if AVIF decoding is available in the current Pillow environment."""
+    try:
+        from PIL import features
+
+        return bool(features.check("avif"))
+    except Exception:
+        return False
+
+
+# Automatically attempt plugin registration on module load
+register_heif_support()
 
 
 def classify_input(path: Path) -> str:
@@ -92,21 +143,58 @@ def unique_path(dest: Path) -> Path:
 
 def convert_image(src: Path, dest: Path, fmt: str) -> None:
     """Convert an image via Pillow.  *dest* must already be a safe path."""
-    from PIL import Image
+    from PIL import Image, UnidentifiedImageError
 
-    with Image.open(src) as img:
-        if fmt in {"jpg", "jpeg"}:
-            if img.mode in ("RGBA", "LA", "P"):
-                rgba = img.convert("RGBA")
-                background = Image.new("RGB", rgba.size, "white")
-                background.paste(rgba, mask=rgba.getchannel("A"))
-                img = background
+    ext = src.suffix.lstrip(".").lower()
+
+    if ext in HEIF_EXTENSIONS and not is_heif_supported():
+        raise RuntimeError(
+            f"Cannot open '{src.name}': HEIC/HEIF decoding is not available.\n"
+            "Install the decoder with:  pip install pillow-heif"
+        )
+    if ext in AVIF_EXTENSIONS and not is_avif_supported():
+        raise RuntimeError(
+            f"Cannot open '{src.name}': AVIF decoding is not supported by the installed Pillow version."
+        )
+
+    # Ensure HEIF plugins are registered before opening
+    if ext in HEIF_EXTENSIONS:
+        register_heif_support()
+
+    try:
+        with Image.open(src) as img:
+            img.load()
+
+            if fmt in {"jpg", "jpeg"}:
+                # Flatten alpha channel over a white background for JPEGs
+                if img.mode in ("RGBA", "LA", "PA") or (
+                    img.mode == "P" and "transparency" in img.info
+                ):
+                    rgba = img.convert("RGBA")
+                    background = Image.new("RGB", rgba.size, (255, 255, 255))
+                    background.paste(rgba, mask=rgba.getchannel("A"))
+                    img = background
+                elif img.mode != "RGB":
+                    img = img.convert("RGB")
+                img.save(dest, "JPEG", quality=92, optimize=True)
             else:
-                img = img.convert("RGB")
-            img.save(dest, "JPEG", quality=92, optimize=True)
-        else:
-            pil_fmt = {"png": "PNG", "webp": "WEBP", "bmp": "BMP", "tiff": "TIFF"}[fmt]
-            img.save(dest, pil_fmt)
+                # Mode adaptations for specific target formats
+                if img.mode == "CMYK":
+                    img = img.convert("RGB")
+                elif fmt == "bmp" and img.mode in ("LA", "PA"):
+                    img = img.convert("RGBA")
+
+                pil_fmt = {
+                    "png": "PNG",
+                    "webp": "WEBP",
+                    "bmp": "BMP",
+                    "tiff": "TIFF",
+                }[fmt]
+                img.save(dest, pil_fmt)
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise RuntimeError(
+            f"Cannot decode image '{src.name}': file is corrupted or in an unsupported format ({exc})."
+        ) from exc
 
 
 # ── Audio / video conversion ─────────────────────────────────────────────
